@@ -320,7 +320,7 @@ def time_window_hist(df,col_base,action_base,col_count,action_count = 'all',save
         l1 = df["action count"].apply(lambda x: x in action_count)
         df = df[l1]
     elif action_count != "all":
-        l1 = df["action count"].apply(lambda x: x in action_count)
+        l1 = df["action count"].apply(lambda x: x == action_count)
         df = df[l1]
     df.reset_index(inplace = True)
     hist = df["hist"]
@@ -349,6 +349,7 @@ def time_window_hist(df,col_base,action_base,col_count,action_count = 'all',save
         fig.set_title(action_base)
         plt.savefig(f"{save_path} {col_base} window hist.png")
         plt.show()
+        plt.close()
 
     return(out_df)
 
@@ -390,7 +391,7 @@ if __name__ == '__main__':
         granger_mat(df_time_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger sub_action.csv")
         granger_mat(df_time_sub_action_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger action_sub_action.csv")
         print(f"made granger for {file_base}")
-        time_hist = time_window_hist(all_windows_df,col_base, action_base, col_count, [action_count],path_file_base)
+        time_hist = time_window_hist(all_windows_df,col_base, action_base, col_count, action_count,path_file_base)
         print(f"made time window for {file_base}")
 
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
