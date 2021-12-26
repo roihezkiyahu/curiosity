@@ -3,15 +3,15 @@ import sys
 dir_path = os.path.dirname(sys.argv[0])
 os.chdir(dir_path)
 import pandas as pd
-from datetime import datetime as dt
 import numpy as np
-from math import ceil,floor,isnan
 import seaborn as sns
+import matplotlib as mpl
 from matplotlib import pyplot as plt
 from scipy.stats import chi2_contingency
 from statsmodels.tsa.stattools import grangercausalitytests
 from functools import reduce
 from shutil import rmtree
+plt.rc('ytick', labelsize=7)
 
 def granger(df,col1,col2,maxlag=5):
     x = grangercausalitytests(df[[col1, col2]].diff().dropna(),maxlag=maxlag,verbose=False)  # null hypoposis col2 does not granger cause col1
@@ -272,14 +272,16 @@ def all_windows(df,s_w,e_w):
                            "action base":[],
                            "col count":[],
                            "action count":[],
-                           "hist":[]})
+                           "hist":[],
+                           "bins" :[]})
     split_loc = lambda x,i: x.split("&")[i]
     for key,item in dict.items():
         out_df = out_df.append({"col base":split_loc(key,0),
                            "action base":split_loc(key,1),
                            "col count":split_loc(key,2),
                            "action count":split_loc(key,3),
-                           "hist":item},ignore_index=True)
+                           "hist":item[0],
+                            "bins":item[1]},ignore_index=True)
     return(out_df)
 
 
@@ -302,50 +304,97 @@ def transform_to_time_representation(df,col = "action",time_stamp_jumps=1):
     out_df = pd.DataFrame(feaueres_time_binary)
     return(out_df)
 
+def time_window_hist(df,col_base,action_base,col_count,action_count = 'all',save_path = ''):
+    '''
+    :param df: dataframe
+    :param col_base: [action,sub_action,action:sub_action] for action base
+    :param action_base: action to count window for
+    :param col_count: [action,sub_action,action:sub_action] for action count
+    :param action_count: action to count in window
+    :return: dataframe containing histograms
+    '''
+    df = df[df["action base"] == action_base]
+    df = df[df["col base"] == col_base]
+    df = df[df["col count"] == col_count]
+    if not isinstance(action_count,str):
+        l1 = df["action count"].apply(lambda x: x in action_count)
+        df = df[l1]
+    elif action_count != "all":
+        l1 = df["action count"].apply(lambda x: x in action_count)
+        df = df[l1]
+    df.reset_index(inplace = True)
+    hist = df["hist"]
+    bins = df["bins"]
+    action_count = df["action count"]
+    if isinstance(hist[0],str):
+        make_array = lambda x: [int(y)  for y in x.strip("]").strip("[").split(" ") if y != '']
+        hist = hist.apply(make_array)
+        bins = bins.apply(make_array)
+    x_axis = np.unique([y for x in bins.values for y in x])
+    f = {}
+    f[col_count] = []
+    f.update({x:[] for x in x_axis})
+    out_df = pd.DataFrame(f)
+    for h,bin,act in zip (hist,bins,action_count):
+        d = {}
+        d[col_count] = act
+        d.update(dict(zip(bin[:-1],h)))
+        out_df= out_df.append(d,ignore_index=True)
+    out_df.fillna(0,inplace=True)
+    out_df.index = out_df[col_count].apply(lambda x: x.replace(" ","\n"))
+    out_df.drop(col_count, axis=1,inplace=True)
+
+    if save_path != '':
+        fig = sns.heatmap(out_df, annot=True, linewidths=.5)
+        fig.set_title(action_base)
+        plt.savefig(f"{save_path} {col_base} window hist.png")
+        plt.show()
+
+    return(out_df)
+
+
 if __name__ == '__main__':
     #load data
     files = os.listdir("files")
+    #set window paramaters
+    col_base, action_base, col_count, action_count = "action","Child gaze","action",'all'
     for file in files:
         file_base = file[:-4]
-        path = f"output/{file_base}"
+        path = os.path.join("output",file_base)
         # re creates folder
-        if os.path.exists(f"output/{file_base}"):
-            rmtree(f"output/{file_base}")
-        os.makedirs(f"output/{file_base}")
+        if os.path.exists(path):
+            rmtree(path)
+        os.makedirs(path)
 
-        df = pd.read_csv(f"files/{file}", sep='\t', engine='python',header = None)
+        file_path = os.path.join("files",file)
+        df = pd.read_csv(file_path, sep='\t', engine='python',header = None)
         df = df_preprocess(df)
         pd.options.display.max_columns = 10
-        df.to_csv(f"{path}/{file_base}.csv")
+        df.to_csv(os.path.join(path,f"{file_base}.csv"))
         print(f"made csv for {file_base}")
-        pd.concat([make_crosstab(df,"action"),make_crosstab(df,"sub_action"),make_crosstab(df,"action:sub_action")]).to_csv(f"{path}/{file_base} sum_count.csv")
+        pd.concat([make_crosstab(df,"action"),make_crosstab(df,"sub_action"),make_crosstab(df,"action:sub_action")]).to_csv(os.path.join(path,f"{file_base} sum_count.csv"))
 
         df_time_action = transform_to_time_representation(df,"action",0.5)
         df_time_sub_action = transform_to_time_representation(df, "sub_action", 0.5)
         df_time_sub_action_sub_action = transform_to_time_representation(df, "action:sub_action", 0.5)
-        df_time_action.to_csv(f"{path}/{file_base} action time rep.csv")
+        path_file_base = os.path.join(path,file_base)
+        df_time_action.to_csv(f"{path_file_base} action time rep.csv")
         print(f"made time representation for {file_base}")
-        all_windows(df,1,5).to_csv(f"{path}/{file_base} windows.csv")
-        Theils_U_matrix(df_time_action).to_csv(f"{path}/{file_base} action_U.csv")
-        Theils_U_matrix(df_time_sub_action).to_csv(f"{path}/{file_base} sub_action_U.csv")
-        Theils_U_matrix(df_time_sub_action_sub_action).to_csv(f"{path}/{file_base} action_sub_action _U.csv")
+        all_windows_df = all_windows(df,1,5)
+        all_windows_df.to_csv(f"{path_file_base} windows.csv")
+        Theils_U_matrix(df_time_action).to_csv(f"{path_file_base} action_U.csv")
+        Theils_U_matrix(df_time_sub_action).to_csv(f"{path_file_base} sub_action_U.csv")
+        Theils_U_matrix(df_time_sub_action_sub_action).to_csv(f"{path_file_base} action_sub_action _U.csv")
         print(f"made Theils_U_matrix for {file_base}")
-        granger_mat(df_time_action.drop("time",axis = 1),5).to_csv(f"{path}/{file_base} granger action.csv")
-        granger_mat(df_time_sub_action.drop("time",axis = 1), 5).to_csv(f"{path}/{file_base} granger sub_action.csv")
-        granger_mat(df_time_sub_action_sub_action.drop("time",axis = 1), 5).to_csv(f"{path}/{file_base} granger action_sub_action.csv")
+        granger_mat(df_time_action.drop("time",axis = 1),5).to_csv(f"{path_file_base} granger action.csv")
+        granger_mat(df_time_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger sub_action.csv")
+        granger_mat(df_time_sub_action_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger action_sub_action.csv")
         print(f"made granger for {file_base}")
+        time_hist = time_window_hist(all_windows_df,col_base, action_base, col_count, [action_count],path_file_base)
+        print(f"made time window for {file_base}")
+
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
     #     sns.heatmap(df.corr(), annot=True)
     #     plt.savefig(f"fig_{i}.png")
     #     plt.show()
-
-
-
-
-
-
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
-
-
-
 
