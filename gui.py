@@ -118,6 +118,8 @@ class Heatmap(QWidget):
         grid.addWidget(self.show_but, *(0, 5,1,1))
         self.show_but.clicked.connect(self.click_show)
 
+        self.click_files()
+
     def show_buttoms(self,arr):
         self.drop_files.setEnabled(arr[0])
         self.drop_col_base.setEnabled(arr[1])
@@ -141,6 +143,7 @@ class Heatmap(QWidget):
         self.windows = df
         col_base = self.windows["col base"]
         self.drop_col_base.addItems(col_base.unique())
+        self.click_col_base()
 
     def click_col_base(self):
         col_base = str(self.drop_col_base.currentText())
@@ -154,6 +157,7 @@ class Heatmap(QWidget):
         self.windows = self.windows[self.windows["col base"] == col_base]
         action_base = self.windows["action base"]
         self.drop_action_base.addItems(action_base.unique())
+        self.click_action_base()
 
     def click_action_base(self):
         action_base = str(self.drop_action_base.currentText())
@@ -167,6 +171,7 @@ class Heatmap(QWidget):
         self.windows = self.windows[self.windows["action base"] == action_base]
         col_count = self.windows["col count"]
         self.drop_col_count.addItems(col_count.unique())
+        self.click_col_count()
 
     def click_col_count(self):
         col_count = str(self.drop_col_count.currentText())
@@ -181,6 +186,7 @@ class Heatmap(QWidget):
         self.action_count = self.windows["action count"]
         self.drop_action_count.addItems(["all"])
         self.drop_action_count.addItems(self.action_count.unique())
+        self.click_action_count()
 
     def click_action_count(self):
         self.show_buttoms([True, True, True, True, True, True])

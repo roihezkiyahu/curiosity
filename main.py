@@ -18,7 +18,10 @@ def granger(df,col1,col2,maxlag=5):
     lags = list(range(1,maxlag+1))
     lag_pv = np.array([x[lag][0]['ssr_chi2test'][1] for lag in lags])
     best_pv = min(lag_pv)
-    best_lag = np.array(lags)[lag_pv == best_pv] if len(lag_pv == best_pv) == 1 else np.array(lags)[lag_pv == best_pv][0]
+    try:
+        best_lag = np.array(lags)[lag_pv == best_pv] if len(lag_pv == best_pv) == 1 else np.array(lags)[lag_pv == best_pv][0]
+    except:
+        best_lag = 0
     return([best_lag,best_pv])
 def granger_mat(df,maxlag = 5):
     '''
@@ -212,7 +215,7 @@ def df_preprocess(df):
     for time_col in ["s_time","e_time","t_time"]:
         df[time_col] = df[time_col].apply(transfer_time_to_s)
 
-    df = trim_by_time(df) #trims data
+    #df = trim_by_time(df) #trims data
     df = fillnas(df)# fill nas
     PC_frame, CP_frame, PCP_frame, CPC_frame = Conversational_turns(df,sec = 5) #makes conversational turns
     ja_frame = joint_attention(df) #makes joint attentions
@@ -238,7 +241,7 @@ def make_crosstab(df,col):
     #makes a crosstab for spesific column
     time_sums = pd.crosstab(df[col],"sum",values = df["t_time"],aggfunc = 'sum') #sums time for each action
     time_counts = pd.crosstab(df[col], "count", values=df["t_time"],aggfunc='count')  # count number of events for each action
-    interaction_length = df["e_time"].values[-1]-df["s_time"].values[0]
+    interaction_length = df["e_time"].max()-df["s_time"].min()
     time_sums_normalize = time_sums/interaction_length
     time_counts_normalize = time_counts / interaction_length
     out_df = pd.concat([time_sums,time_counts,time_sums_normalize,time_counts_normalize],axis= 1)
@@ -258,9 +261,19 @@ def time_window(df,col_base,act_base,col_count,act_count,s_w,e_w):
     '''
     action_e_times = df[df[col_base]==act_base]["e_time"]
     counter_s_times = df[df[col_count]==act_count]["s_time"]
-    in_time_frame = lambda  s_t,e_t: e_t + s_w <= s_t <= e_t + e_w
-    time_count = {e_time: sum([in_time_frame(s_time,e_time) for s_time in counter_s_times]) for e_time in action_e_times}
-    hist = np.histogram(list(time_count.values()), bins=list(range(1,max(list(time_count.values()))+2)))
+
+    # in_time_frame = lambda s_t,e_t: e_t + s_w <= s_t <= e_t + e_w
+    # time_count = {e_time: sum([in_time_frame(s_time,e_time) for s_time in counter_s_times]) for e_time in action_e_times}
+    # hist = np.histogram(list(time_count.values()), bins=list(range(s_w,max(list(time_count.values()))+2)))
+
+    bins = np.array(range(s_w, e_w))
+    hist_vals = []
+    for bin, next_bin in zip(bins, bins[1:]):
+        hist_vals.append(sum(sum(
+            [(e_time + bin <= counter_s_times) & (counter_s_times < e_time + next_bin) for e_time in action_e_times])))
+    hist = (np.array(hist_vals),bins)
+
+
     return({f"{col_base}&{act_base}&{col_count}&{act_count}":hist})
 def all_windows(df,s_w,e_w):
     cols = ["action","sub_action","action:sub_action"]
@@ -287,8 +300,8 @@ def all_windows(df,s_w,e_w):
 
 def transform_to_time_representation(df,col = "action",time_stamp_jumps=1):
     #return the df in the time domain
-    end_of_vid = df["e_time"].values[-1]
-    start_of_vid = df["s_time"].values[0]
+    end_of_vid = df["e_time"].max()
+    start_of_vid = df["s_time"].min()
     time_indicates = np.arange(start_of_vid, end_of_vid, time_stamp_jumps)
     # for each observation an array of times it appears in
     # times= pd.Series([np.arange(row["s_time"], row["e_time"], time_stamp_jumps) for index,row in df.iterrows()],
@@ -353,12 +366,7 @@ def time_window_hist(df,col_base,action_base,col_count,action_count = 'all',save
 
     return(out_df)
 
-
-if __name__ == '__main__':
-    #load data
-    files = os.listdir("files")
-    #set window paramaters
-    col_base, action_base, col_count, action_count = "action","Child gaze","action",'all'
+def process_data(files,col_base="action", action_base = "Child gaze", col_count = "action", action_count = 'all'):
     for file in files:
         file_base = file[:-4]
         path = os.path.join("output",file_base)
@@ -370,7 +378,6 @@ if __name__ == '__main__':
         file_path = os.path.join("files",file)
         df = pd.read_csv(file_path, sep='\t', engine='python',header = None)
         df = df_preprocess(df)
-        pd.options.display.max_columns = 10
         df.to_csv(os.path.join(path,f"{file_base}.csv"))
         print(f"made csv for {file_base}")
         pd.concat([make_crosstab(df,"action"),make_crosstab(df,"sub_action"),make_crosstab(df,"action:sub_action")]).to_csv(os.path.join(path,f"{file_base} sum_count.csv"))
@@ -381,8 +388,9 @@ if __name__ == '__main__':
         path_file_base = os.path.join(path,file_base)
         df_time_action.to_csv(f"{path_file_base} action time rep.csv")
         print(f"made time representation for {file_base}")
-        all_windows_df = all_windows(df,1,5)
+        all_windows_df = all_windows(df,-3,5)
         all_windows_df.to_csv(f"{path_file_base} windows.csv")
+        print(f"made windows for {file_base}")
         Theils_U_matrix(df_time_action).to_csv(f"{path_file_base} action_U.csv")
         Theils_U_matrix(df_time_sub_action).to_csv(f"{path_file_base} sub_action_U.csv")
         Theils_U_matrix(df_time_sub_action_sub_action).to_csv(f"{path_file_base} action_sub_action _U.csv")
@@ -394,8 +402,52 @@ if __name__ == '__main__':
         time_hist = time_window_hist(all_windows_df,col_base, action_base, col_count, action_count,path_file_base)
         print(f"made time window for {file_base}")
 
+def stich_frames(df_array,stiching_with = np.nan,stich_len = 10):
+    """
+    df_array: array of dataframes to concat
+    stiching_with: value to stich with
+    stich_len = length of stiching
+    """
+    df = df_array[0]
+    cols = df.columns
+    for df_to_add in df_array[1:]:
+        df = pd.concat([df,pd.DataFrame({col:[stiching_with]*stich_len for col in cols}),df_to_add])
+    return(df)
+
+if __name__ == '__main__':
+    '''
+    actions = 'Child utterance', 'Child gaze', 'Child gesture',
+       'Parent utterance', 'Verbal scaffolding', 'Parent gaze',
+       'Parent gesture', 'Child prop manipulation', 'Parent prop manipulation',
+       'Conversational turns', 'Joint attention', 'Mutual gaze', 'time',
+       'Child affect', 'Parent affect', 'Parent affective touch',
+       'Child affective touch', 'Non-verbal scaffolding']
+    '''
+
+    #load data
+    files = os.listdir("files")
+    #set window paramaters
+
+    process_data(files)
+
+    processed_files = os.listdir("output")
+    # stich dataframes
+    df_array = np.array([pd.read_csv(os.path.join("output",file,f"{file} action time rep.csv")) for file in processed_files])
+    robot_files_bool = [file[2] == "r" for file in processed_files]
+    tablet_files_bool = [file[2] == "t" for file in processed_files]
+    df = stich_frames(df_array)
+    df_r = stich_frames(df_array[robot_files_bool])
+    df_t = stich_frames(df_array[tablet_files_bool])
+    col1 = 'Parent gesture'
+    col2 = 'Child prop manipulation'
+    print(granger(df, col1, col2, maxlag=5))
+    print(granger(df_r, col1, col2, maxlag=5))
+    print(granger(df_t, col1, col2, maxlag=5))
+    print(df.columns)
+
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
     #     sns.heatmap(df.corr(), annot=True)
     #     plt.savefig(f"fig_{i}.png")
     #     plt.show()
+
 
