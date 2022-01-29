@@ -416,7 +416,7 @@ def stich_frames(df_array,stiching_with = np.nan,stich_len = 10):
 
 if __name__ == '__main__':
     '''
-    actions = 'Child utterance', 'Child gaze', 'Child gesture',
+    actions = ['Child utterance', 'Child gaze', 'Child gesture',
        'Parent utterance', 'Verbal scaffolding', 'Parent gaze',
        'Parent gesture', 'Child prop manipulation', 'Parent prop manipulation',
        'Conversational turns', 'Joint attention', 'Mutual gaze', 'time',
@@ -428,7 +428,7 @@ if __name__ == '__main__':
     files = os.listdir("files")
     #set window paramaters
 
-    process_data(files)
+    #process_data(files)
 
     processed_files = os.listdir("output")
     # stich dataframes
@@ -440,10 +440,15 @@ if __name__ == '__main__':
     df_t = stich_frames(df_array[tablet_files_bool])
     col1 = 'Parent gesture'
     col2 = 'Child prop manipulation'
+
+    # specific granger analysis
     print(granger(df, col1, col2, maxlag=5))
     print(granger(df_r, col1, col2, maxlag=5))
     print(granger(df_t, col1, col2, maxlag=5))
     print(df.columns)
+
+    #specific t-tests
+    features = ['Child utterance','Verbal scaffolding','Parent affective touch','Conversational turns']
 
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
     #     sns.heatmap(df.corr(), annot=True)
