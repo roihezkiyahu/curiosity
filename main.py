@@ -11,6 +11,7 @@ from scipy.stats import chi2_contingency
 from statsmodels.tsa.stattools import grangercausalitytests
 from functools import reduce
 from shutil import rmtree
+from multiprocessing import Pool
 plt.rc('ytick', labelsize=7)
 
 def granger(df,col1,col2,maxlag=5):
@@ -203,8 +204,9 @@ def fillnas(df):
     df["who"] = who_filled
 
     sub = df["sub_action"]
-    action_lsat_words = [reduce(lambda x, y: x + " " + y, act.split(" ")[1:]) for act in action]
-    sub_filled = [s if isinstance(s,str) else word for s,word in zip(sub,action_lsat_words)]
+    action_last_words = [reduce(lambda x, y: x + " " + y, act.split(" ")[1:]) if
+                         len(act.split(" ")[1:]) > 0 else [" "] for act in action]
+    sub_filled = [s if isinstance(s, str) else word for s, word in zip(sub, action_last_words)]
     df["sub_action"] = sub_filled
     return(df)
 def df_preprocess(df):
@@ -299,9 +301,15 @@ def all_windows(df,s_w,e_w):
 
 
 def transform_to_time_representation(df,col = "action",time_stamp_jumps=1):
-    #return the df in the time domain
-    end_of_vid = df["e_time"].max()
-    start_of_vid = df["s_time"].min()
+    # return the df in the time domain
+    if "start-end" in df["action"]:
+        end_of_vid = df[df["sub_action"] == "end"]["e_time"].values[0]
+        start_of_vid = df[df["sub_action"] == "start"]["s_time"].values[0]
+        df = df[df["action"] != "start-end"]
+    else:
+        end_of_vid = df["e_time"].max()
+        start_of_vid = df["s_time"].min()
+
     time_indicates = np.arange(start_of_vid, end_of_vid, time_stamp_jumps)
     # for each observation an array of times it appears in
     # times= pd.Series([np.arange(row["s_time"], row["e_time"], time_stamp_jumps) for index,row in df.iterrows()],
@@ -366,41 +374,40 @@ def time_window_hist(df,col_base,action_base,col_count,action_count = 'all',save
 
     return(out_df)
 
-def process_data(files,col_base="action", action_base = "Child gaze", col_count = "action", action_count = 'all'):
-    for file in files:
-        file_base = file[:-4]
-        path = os.path.join("output",file_base)
-        # re creates folder
-        if os.path.exists(path):
-            rmtree(path)
-        os.makedirs(path)
+def process_data(file,col_base="action", action_base = "Child gaze", col_count = "action", action_count = 'all'):
+    file_base = file[:-4]
+    path = os.path.join("output",file_base)
+    # re creates folder
+    if os.path.exists(path):
+        rmtree(path)
+    os.makedirs(path)
 
-        file_path = os.path.join("files",file)
-        df = pd.read_csv(file_path, sep='\t', engine='python',header = None)
-        df = df_preprocess(df)
-        df.to_csv(os.path.join(path,f"{file_base}.csv"))
-        print(f"made csv for {file_base}")
-        pd.concat([make_crosstab(df,"action"),make_crosstab(df,"sub_action"),make_crosstab(df,"action:sub_action")]).to_csv(os.path.join(path,f"{file_base} sum_count.csv"))
+    file_path = os.path.join("files",file)
+    df = pd.read_csv(file_path, sep='\t', engine='python',header = None)
+    df = df_preprocess(df)
+    df.to_csv(os.path.join(path,f"{file_base}.csv"))
+    print(f"made csv for {file_base}")
+    pd.concat([make_crosstab(df,"action"),make_crosstab(df,"sub_action"),make_crosstab(df,"action:sub_action")]).to_csv(os.path.join(path,f"{file_base} sum_count.csv"))
 
-        df_time_action = transform_to_time_representation(df,"action",0.5)
-        df_time_sub_action = transform_to_time_representation(df, "sub_action", 0.5)
-        df_time_sub_action_sub_action = transform_to_time_representation(df, "action:sub_action", 0.5)
-        path_file_base = os.path.join(path,file_base)
-        df_time_action.to_csv(f"{path_file_base} action time rep.csv")
-        print(f"made time representation for {file_base}")
-        all_windows_df = all_windows(df,-3,5)
-        all_windows_df.to_csv(f"{path_file_base} windows.csv")
-        print(f"made windows for {file_base}")
-        Theils_U_matrix(df_time_action).to_csv(f"{path_file_base} action_U.csv")
-        Theils_U_matrix(df_time_sub_action).to_csv(f"{path_file_base} sub_action_U.csv")
-        Theils_U_matrix(df_time_sub_action_sub_action).to_csv(f"{path_file_base} action_sub_action _U.csv")
-        print(f"made Theils_U_matrix for {file_base}")
-        granger_mat(df_time_action.drop("time",axis = 1),5).to_csv(f"{path_file_base} granger action.csv")
-        granger_mat(df_time_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger sub_action.csv")
-        granger_mat(df_time_sub_action_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger action_sub_action.csv")
-        print(f"made granger for {file_base}")
-        time_hist = time_window_hist(all_windows_df,col_base, action_base, col_count, action_count,path_file_base)
-        print(f"made time window for {file_base}")
+    df_time_action = transform_to_time_representation(df,"action",0.5)
+    df_time_sub_action = transform_to_time_representation(df, "sub_action", 0.5)
+    df_time_sub_action_sub_action = transform_to_time_representation(df, "action:sub_action", 0.5)
+    path_file_base = os.path.join(path,file_base)
+    df_time_action.to_csv(f"{path_file_base} action time rep.csv")
+    print(f"made time representation for {file_base}")
+    all_windows_df = all_windows(df,-3,5)
+    all_windows_df.to_csv(f"{path_file_base} windows.csv")
+    print(f"made windows for {file_base}")
+    Theils_U_matrix(df_time_action).to_csv(f"{path_file_base} action_U.csv")
+    Theils_U_matrix(df_time_sub_action).to_csv(f"{path_file_base} sub_action_U.csv")
+    Theils_U_matrix(df_time_sub_action_sub_action).to_csv(f"{path_file_base} action_sub_action _U.csv")
+    print(f"made Theils_U_matrix for {file_base}")
+    granger_mat(df_time_action.drop("time",axis = 1),5).to_csv(f"{path_file_base} granger action.csv")
+    granger_mat(df_time_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger sub_action.csv")
+    granger_mat(df_time_sub_action_sub_action.drop("time",axis = 1), 5).to_csv(f"{path_file_base} granger action_sub_action.csv")
+    print(f"made granger for {file_base}")
+    time_hist = time_window_hist(all_windows_df,col_base, action_base, col_count, action_count,path_file_base)
+    print(f"made time window for {file_base}")
 
 def stich_frames(df_array,stiching_with = np.nan,stich_len = 10):
     """
@@ -423,12 +430,20 @@ if __name__ == '__main__':
        'Child affect', 'Parent affect', 'Parent affective touch',
        'Child affective touch', 'Non-verbal scaffolding']
     '''
-
+    process = False
+    multi_process = False
     #load data
     files = os.listdir("files")
-    #set window paramaters
-
-    #process_data(files)
+    if process:
+        #multiprocess the data
+        if multi_process:
+            #change number of workers according to the available number
+            p = Pool(6)
+            with p:
+                p.map(process_data,files)
+        else:
+            for file in files:
+                process_data(file)
 
     processed_files = os.listdir("output")
     # stich dataframes
