@@ -12,6 +12,8 @@ from statsmodels.tsa.stattools import grangercausalitytests
 from functools import reduce
 from shutil import rmtree
 from multiprocessing import Pool
+from scipy.stats import ttest_rel
+from statsmodels.stats.multitest import multipletests
 plt.rc('ytick', labelsize=7)
 
 def granger(df,col1,col2,maxlag=5):
@@ -421,6 +423,144 @@ def stich_frames(df_array,stiching_with = np.nan,stich_len = 10):
         df = pd.concat([df,pd.DataFrame({col:[stiching_with]*stich_len for col in cols}),df_to_add])
     return(df)
 
+def make_df_dict(features):
+    #file discreptions
+    files_disc = {file:{"lesson":file[:2],"type":file[2],"participent":file[-3:]} for file in os.listdir("output")}
+    #all participants numbers
+    unique_part = np.unique([file[-3:] for file in os.listdir("output")])
+    #dictenary with values for each participent
+    base_dict = {"participent":[]}
+    first_robot_dict = {f"{feature}_first_robot":[] for feature in features}
+    second_robot_dict = {f"{feature}_second_robot": [] for feature in features}
+    tablet_dict = {f"{feature}_tablet": [] for feature in features}
+    base_dict.update(first_robot_dict)
+    base_dict.update(second_robot_dict)
+    base_dict.update(tablet_dict)
+    df_dict = {participent:base_dict.copy() for participent in unique_part}
+    for participent in unique_part:
+        df_dict[participent]["participent"] = participent
+    return (df_dict,files_disc,unique_part,base_dict)
+
+def fill_dict(files_disc,df_dict):
+    '''
+    fills dictinory for t-test analysis
+    '''
+    for file in files_disc:
+        path_to_sum_count = os.path.join("output",file,f"{file} sum_count.csv")
+        temp_df = pd.read_csv(path_to_sum_count)
+        type = files_disc[file]["type"]
+        participent = files_disc[file]["participent"]
+        lesson = files_disc[file]["lesson"]
+        # add for tablet type
+        if type == "t":
+            for feature in features:
+                if feature not in ["Child gaze:props_robot_tablet","Parent gaze:props_robot_tablet"]:
+                    try:
+                        df_dict[participent][f"{feature}_tablet"] = temp_df[temp_df["Unnamed: 0"] == feature]["normalized total time"].values[0]
+                    except:
+                        df_dict[participent][f"{feature}_tablet"] = 0
+                else:
+                    if feature == "Child gaze:props_robot_tablet":
+                        try:
+                            df_dict[participent][f"{feature}_tablet"] = temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0]-temp_df[temp_df["Unnamed: 0"] == "Child gaze:parent"]["normalized total time"].values[0]
+                        except:
+                            df_dict[participent][f"{feature}_tablet"] = temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0]
+                    else:
+                        try:
+                            df_dict[participent][f"{feature}_tablet"] = temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0]-temp_df[temp_df["Unnamed: 0"] == "Parent gaze:child"]["normalized total time"].values[0]
+                        except:
+                            try:
+                                df_dict[participent][f"{feature}_tablet"] = temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}_tablet"] = 0
+        else:
+            if lesson == "l1":
+                for feature in features:
+                    if feature not in ["Child gaze:props_robot_tablet", "Parent gaze:props_robot_tablet"]:
+                        try:
+                            df_dict[participent][f"{feature}_first_robot"] = \
+                            temp_df[temp_df["Unnamed: 0"] == feature]["normalized total time"].values[0]
+                        except:
+                            df_dict[participent][f"{feature}_first_robot"] = 0
+                    else:
+                        if feature == "Child gaze:props_robot_tablet":
+                            try:
+                                df_dict[participent][f"{feature}_first_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0] - \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze:parent"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}_first_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0]
+                        else:
+                            try:
+                                df_dict[participent][f"{feature}_first_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0] - \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze:child"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}_first_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0]
+            elif lesson == "l3":
+                for feature in features:
+                    if feature not in ["Child gaze:props_robot_tablet", "Parent gaze:props_robot_tablet"]:
+                        try:
+                            df_dict[participent][f"{feature}_second_robot"] = \
+                            temp_df[temp_df["Unnamed: 0"] == feature]["normalized total time"].values[0]
+                        except:
+                            df_dict[participent][f"{feature}_second_robot"] = 0
+                    else:
+                        if feature == "Child gaze:props_robot_tablet":
+                            try:
+                                df_dict[participent][f"{feature}_second_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0] - \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze:parent"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}_second_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0]
+                        else:
+                            try:
+                                df_dict[participent][f"{feature}_second_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0] - \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze:child"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}_second_robot"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0]
+            else:
+                lessons =[]
+                types = []
+                for file_2 in files_disc:
+                    if files_disc[file_2]["participent"] == participent:
+                        lessons.append(files_disc[file_2]["lesson"])
+                        types.append(files_disc[file_2]["type"])
+                if np.array(type)[lessons == "l1"] =="t":
+                    ending = "_first_robot"
+                else:
+                    ending = "_second_robot"
+                for feature in features:
+                    if feature not in ["Child gaze:props_robot_tablet", "Parent gaze:props_robot_tablet"]:
+                        try:
+                            df_dict[participent][f"{feature}_second_robot"] = \
+                            temp_df[temp_df["Unnamed: 0"] == feature]["normalized total time"].values[0]
+                        except:
+                            df_dict[participent][f"{feature}_second_robot"] = 0
+                    else:
+                        if feature == "Child gaze:props_robot_tablet":
+                            try:
+                                df_dict[participent][f"{feature}{ending}"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0] - \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze:parent"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}{ending}"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Child gaze"]["normalized total time"].values[0]
+                        else:
+                            try:
+                                df_dict[participent][f"{feature}{ending}"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0] - \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze:child"]["normalized total time"].values[0]
+                            except:
+                                df_dict[participent][f"{feature}{ending}"] = \
+                                temp_df[temp_df["Unnamed: 0"] == "Parent gaze"]["normalized total time"].values[0]
+    return(df_dict)
+
 if __name__ == '__main__':
     '''
     actions = ['Child utterance', 'Child gaze', 'Child gesture',
@@ -463,11 +603,63 @@ if __name__ == '__main__':
     print(df.columns)
 
     #specific t-tests
-    features = ['Child utterance','Verbal scaffolding','Parent affective touch','Conversational turns']
+    features = ['Child gesture','Conversational turns','Mutual gaze','Parent gesture',"Child gaze:parent","Parent gaze:child",
+                "Child gaze:props_robot_tablet","Parent gaze:props_robot_tablet","Parent gaze:child","Verbal scaffolding:affective","Verbal scaffolding:cognitive",
+                "Verbal scaffolding:technical","Parent affective touch"]
+    df_dict,files_disc,unique_part,base_dict = make_df_dict(features)
+    df_dict = fill_dict(files_disc, df_dict)
+    #make dataframe for t test
+    t_test_df = pd.DataFrame(base_dict)
+    for participent in unique_part:
+        t_test_df = t_test_df.append(df_dict[participent], ignore_index=True)
+    t_test_df.to_csv(os.path.join("analysis output","t_test_df.csv"))
+
+    ttest_rel
+    t_results = pd.DataFrame({"feature":[],
+                              "t_score":[],
+                              "pv":[],
+                              "mean_robot":[],
+                              "std_robot":[],
+                              "mean_tablet":[],
+                              "std_tablet":[]})
+
+    for feat in features:
+        robot_feat = f"{feat}_first_robot"
+        tablet_feat = f"{feat}_tablet"
+        robot_vals = t_test_df[robot_feat]
+        tablet_vals = t_test_df[tablet_feat]
+        l1 = [t != [] for t in robot_vals]
+        l2 = [t != [] for t in tablet_vals]
+        valid = [l_1 and l_2 for l_1,l_2 in zip(l1,l2)]
+        if sum(valid) > 0:
+            valid_robot = robot_vals[valid]
+            valid_tablet = tablet_vals[valid]
+            t_test = ttest_rel(valid_robot,valid_tablet,alternative = "two-sided")
+            t_results = t_results.append({"feature": feat,
+             "t_score": t_test[0],
+             "pv": t_test[1],
+             "mean_robot": valid_robot.mean(),
+             "std_robot": valid_robot.std(),
+             "mean_tablet": valid_tablet.mean(),
+             "std_tablet": valid_tablet.std()}, ignore_index=True)
+    # benjamini hocberg transformation
+    t_results["bh_pv"] = multipletests(t_results["pv"], alpha=0.05, method="fdr_bh")[1]
+
+
+
+    print(t_results)
+
+
+
+
+
+
+
 
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
     #     sns.heatmap(df.corr(), annot=True)
     #     plt.savefig(f"fig_{i}.png")
     #     plt.show()
+
 
 
