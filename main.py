@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 dir_path = os.path.dirname(sys.argv[0])
 os.chdir(dir_path)
@@ -376,12 +377,15 @@ def time_window_hist(df,col_base,action_base,col_count,action_count = 'all',save
 
     return(out_df)
 
-def process_data(file,col_base="action", action_base = "Child gaze", col_count = "action", action_count = 'all'):
+def process_data(file,col_base="action", action_base = "Child gaze", col_count = "action", action_count = 'all',time_stamp_jumps = 0.5,overwrite = False):
     file_base = file[:-4]
     path = os.path.join("output",file_base)
-    # re creates folder
+    # goes to next file if the file was already processed
     if os.path.exists(path):
-        rmtree(path)
+        print(f"{file_base} already in output files")
+        if not overwrite:
+            return
+        shutil.rmtree(path)
     os.makedirs(path)
 
     file_path = os.path.join("files",file)
@@ -391,11 +395,13 @@ def process_data(file,col_base="action", action_base = "Child gaze", col_count =
     print(f"made csv for {file_base}")
     pd.concat([make_crosstab(df,"action"),make_crosstab(df,"sub_action"),make_crosstab(df,"action:sub_action")]).to_csv(os.path.join(path,f"{file_base} sum_count.csv"))
 
-    df_time_action = transform_to_time_representation(df,"action",0.5)
-    df_time_sub_action = transform_to_time_representation(df, "sub_action", 0.5)
-    df_time_sub_action_sub_action = transform_to_time_representation(df, "action:sub_action", 0.5)
+    df_time_action = transform_to_time_representation(df,"action",time_stamp_jumps)
+    df_time_sub_action = transform_to_time_representation(df, "sub_action", time_stamp_jumps)
+    df_time_sub_action_sub_action = transform_to_time_representation(df, "action:sub_action", time_stamp_jumps)
     path_file_base = os.path.join(path,file_base)
     df_time_action.to_csv(f"{path_file_base} action time rep.csv")
+    df_time_sub_action.to_csv(f"{path_file_base} sub_action time rep.csv")
+    df_time_sub_action_sub_action.to_csv(f"{path_file_base} action_sub_action time rep.csv")
     print(f"made time representation for {file_base}")
     all_windows_df = all_windows(df,-3,5)
     all_windows_df.to_csv(f"{path_file_base} windows.csv")
@@ -531,17 +537,21 @@ def fill_dict(files_disc,df_dict):
                     if files_disc[file_2]["participent"] == participent:
                         lessons.append(files_disc[file_2]["lesson"])
                         types.append(files_disc[file_2]["type"])
-                if np.array(type)[lessons == "l1"] =="t":
+                try:
+                    if np.array(types)[np.array(lessons) == "l1"][0] =="t":
+                        ending = "_first_robot"
+                    else:
+                        ending = "_second_robot"
+                except:
+                    #if we got here there is probbalby missing sessions
                     ending = "_first_robot"
-                else:
-                    ending = "_second_robot"
                 for feature in features:
                     if feature not in ["Child gaze:props_robot_tablet", "Parent gaze:props_robot_tablet"]:
                         try:
-                            df_dict[participent][f"{feature}_second_robot"] = \
+                            df_dict[participent][f"{feature}{ending}"] = \
                             temp_df[temp_df["Unnamed: 0"] == feature]["normalized total time"].values[0]
                         except:
-                            df_dict[participent][f"{feature}_second_robot"] = 0
+                            df_dict[participent][f"{feature}{ending}"] = 0
                     else:
                         if feature == "Child gaze:props_robot_tablet":
                             try:
@@ -578,7 +588,7 @@ if __name__ == '__main__':
         #multiprocess the data
         if multi_process:
             #change number of workers according to the available number
-            p = Pool(6)
+            p = Pool(8)
             with p:
                 p.map(process_data,files)
         else:
@@ -587,23 +597,18 @@ if __name__ == '__main__':
 
     processed_files = os.listdir("output")
     # stich dataframes
-    df_array = np.array([pd.read_csv(os.path.join("output",file,f"{file} action time rep.csv")) for file in processed_files])
+    df_array = np.array([pd.concat([pd.read_csv(os.path.join("output",file,f"{file} action time rep.csv")),
+                                    pd.read_csv(os.path.join("output",file,f"{file} sub_action time rep.csv")),
+                                    pd.read_csv(os.path.join("output",file,f"{file} action_sub_action time rep.csv"))], axis=1)
+                                    for file in processed_files])
     robot_files_bool = [file[2] == "r" for file in processed_files]
     tablet_files_bool = [file[2] == "t" for file in processed_files]
     df = stich_frames(df_array)
     df_r = stich_frames(df_array[robot_files_bool])
     df_t = stich_frames(df_array[tablet_files_bool])
-    col1 = 'Parent gesture'
-    col2 = 'Child prop manipulation'
-
-    # specific granger analysis
-    print(granger(df, col1, col2, maxlag=5))
-    print(granger(df_r, col1, col2, maxlag=5))
-    print(granger(df_t, col1, col2, maxlag=5))
-    print(df.columns)
 
     #specific t-tests
-    features = ['Child gesture','Conversational turns','Mutual gaze','Parent gesture',"Child gaze:parent","Parent gaze:child",
+    features = ['Child gesture','Conversational turns','Mutual gaze','Parent gesture',"Child gaze:parent",
                 "Child gaze:props_robot_tablet","Parent gaze:props_robot_tablet","Parent gaze:child","Verbal scaffolding:affective","Verbal scaffolding:cognitive",
                 "Verbal scaffolding:technical","Parent affective touch"]
     df_dict,files_disc,unique_part,base_dict = make_df_dict(features)
@@ -642,24 +647,43 @@ if __name__ == '__main__':
              "std_robot": valid_robot.std(),
              "mean_tablet": valid_tablet.mean(),
              "std_tablet": valid_tablet.std()}, ignore_index=True)
+    t_results = t_results.dropna().reset_index()
     # benjamini hocberg transformation
     t_results["bh_pv"] = multipletests(t_results["pv"], alpha=0.05, method="fdr_bh")[1]
 
-
-
     print(t_results)
 
+    #granger features
+    col1 = ['robot pointing','robot pointing','robot pointing','robot pointing','robot pointing',
+            'robot text:positive feedback','robot text:positive feedback','robot text:positive feedback']
+    col2 = ['Child gaze:props','Child gaze:robot','Parent gaze:props','Parent gaze:robot','Joint attention',
+            'Parent affective scaffolding','Parent affective touch','Child affective touch']
+    lags = []
+    pv = []
+    df_r['Parent affective scaffolding'] = [max(x,y) for x,y in zip(df_r["Non-verbal scaffolding:affective"],df["Verbal scaffolding:affective"])]
+    for col_1,col_2 in zip(col1,col2):
+        #specific granger analysis
+        granger_res = granger(df_r, col_1, col_2, maxlag=5)
+        lags.append(granger_res[0])
+        pv.append(granger_res[1])
+    granger_df = pd.DataFrame({"col1":col1,
+                               "col2":col2,
+                               "lag" :lags,
+                               "p value":pv})
+    granger_df["bh_pv"] = multipletests(granger_df["pv"], alpha=0.05, method="fdr_bh")[1]
 
-
-
-
-
+    bh_pv_full = multipletests(pd.concat([t_results["pv"],granger_df["pv"]]), alpha=0.05, method="fdr_bh")[1]
+    t_results["bh_pv_full"] = bh_pv_full[:len(t_results)]
+    granger_df["bh_pv_full"] = bh_pv_full[-len(granger_df):]
+    t_results.to_csv(os.path.join("analysis output", "t_results_df.csv"))
+    granger_df.to_csv(os.path.join("analysis output","granger_df.csv"))
 
 
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
     #     sns.heatmap(df.corr(), annot=True)
     #     plt.savefig(f"fig_{i}.png")
     #     plt.show()
+
 
 
 
