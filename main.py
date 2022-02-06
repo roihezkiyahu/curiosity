@@ -423,11 +423,30 @@ def stich_frames(df_array,stiching_with = np.nan,stich_len = 10):
     stiching_with: value to stich with
     stich_len = length of stiching
     """
-    df = df_array[0]
-    cols = df.columns
-    for df_to_add in df_array[1:]:
-        df = pd.concat([df,pd.DataFrame({col:[stiching_with]*stich_len for col in cols}),df_to_add])
-    return(df)
+
+    cols = np.unique(sum([list(t_df.columns) for t_df in df_array],[]))
+    d = {}
+    for col in cols:
+        df_col = []
+        for df in df_array:
+            if col in df.columns:
+                if sum(col == df.columns) > 1:
+                    df_col.extend(df[col].iloc[:, 0])
+                else:
+                    df_col.extend(list(df[col].values))
+            else:
+                df_col.extend([stiching_with]*len(df))
+        d[col] = df_col
+    # for i,df_t in enumerate(df_array):
+    #     for col in cols:
+    #         n = len(df_t)
+    #         if col not in df_t.columns:
+    #             df_t[col] = [stiching_with]* n
+    #     df_array[i] = df_t[cols].reset_index(drop=True).loc[:,~df_t.columns.duplicated()]
+    # df = df_array[0]
+    # for df_to_add in df_array[1:]:
+    #     df = pd.concat([df,pd.DataFrame({col:[stiching_with]*stich_len for col in cols}),df_to_add]).reset_index(drop=True)
+    return(pd.DataFrame(d))
 
 def make_df_dict(features):
     #file discreptions
@@ -597,15 +616,15 @@ if __name__ == '__main__':
 
     processed_files = os.listdir("output")
     # stich dataframes
-    df_array = np.array([pd.concat([pd.read_csv(os.path.join("output",file,f"{file} action time rep.csv")),
+    df_array = [pd.concat([pd.read_csv(os.path.join("output",file,f"{file} action time rep.csv")),
                                     pd.read_csv(os.path.join("output",file,f"{file} sub_action time rep.csv")),
                                     pd.read_csv(os.path.join("output",file,f"{file} action_sub_action time rep.csv"))], axis=1)
-                                    for file in processed_files])
+                                    for file in processed_files]
     robot_files_bool = [file[2] == "r" for file in processed_files]
     tablet_files_bool = [file[2] == "t" for file in processed_files]
     df = stich_frames(df_array)
-    df_r = stich_frames(df_array[robot_files_bool])
-    df_t = stich_frames(df_array[tablet_files_bool])
+    df_r = stich_frames(np.array(df_array)[robot_files_bool])
+    df_t = stich_frames(np.array(df_array)[tablet_files_bool])
 
     #specific t-tests
     features = ['Child gesture','Conversational turns','Mutual gaze','Parent gesture',"Child gaze:parent",
@@ -669,7 +688,7 @@ if __name__ == '__main__':
     granger_df = pd.DataFrame({"col1":col1,
                                "col2":col2,
                                "lag" :lags,
-                               "p value":pv})
+                               "pv":pv})
     granger_df["bh_pv"] = multipletests(granger_df["pv"], alpha=0.05, method="fdr_bh")[1]
 
     bh_pv_full = multipletests(pd.concat([t_results["pv"],granger_df["pv"]]), alpha=0.05, method="fdr_bh")[1]
