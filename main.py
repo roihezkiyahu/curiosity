@@ -696,6 +696,7 @@ if __name__ == '__main__':
     granger_df["bh_pv_full"] = bh_pv_full[-len(granger_df):]
     t_results.to_csv(os.path.join("analysis output", "t_results_df.csv"))
     granger_df.to_csv(os.path.join("analysis output","granger_df.csv"))
+    print(granger_df)
 
 
     # for i, df in enumerate([df_time_action, df_time_sub_action, df_time_sub_action_sub_action]):
