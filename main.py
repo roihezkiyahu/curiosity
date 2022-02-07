@@ -629,7 +629,7 @@ if __name__ == '__main__':
     #specific t-tests
     features = ['Child gesture','Conversational turns','Mutual gaze','Parent gesture',"Child gaze:parent",
                 "Child gaze:props_robot_tablet","Parent gaze:props_robot_tablet","Parent gaze:child","Verbal scaffolding:affective","Verbal scaffolding:cognitive",
-                "Verbal scaffolding:technical","Parent affective touch"]
+                "Verbal scaffolding:technical","Parent affective touch","Child affect","Parent affect"]
     df_dict,files_disc,unique_part,base_dict = make_df_dict(features)
     df_dict = fill_dict(files_disc, df_dict)
     #make dataframe for t test
@@ -674,9 +674,15 @@ if __name__ == '__main__':
 
     #granger features
     col1 = ['robot pointing','robot pointing','robot pointing','robot pointing','robot pointing',
-            'robot text:positive feedback','robot text:positive feedback','robot text:positive feedback']
+            'robot text:positive feedback','robot text:positive feedback','robot text:positive feedback',
+            "robot text:pick up","robot text:pick up","robot text:pick up","robot text:pick up","robot text:pick up",
+            "robot text:pick up","robot text:pick up","robot text:pick up","robot text:pick up",
+            "robot text:pick up","robot text:pick up","robot text:pick up","robot text:pick up"]
     col2 = ['Child gaze:props','Child gaze:robot','Parent gaze:props','Parent gaze:robot','Joint attention',
-            'Parent affective scaffolding','Parent affective touch','Child affective touch']
+            'Parent affective scaffolding','Parent affective touch','Child affective touch',
+            'Child gaze:props','Child gaze:robot','Parent gaze:props','Parent gaze:robot',"Mutual gaze",
+            'Child utterance',"Parent utterance","Conversational turns","Verbal scaffolding","Child gesture:point at prop",
+            "Parent gesture:point at prop","Child prop manipulation","Parent prop manipulation"]
     lags = []
     pv = []
     df_r['Parent affective scaffolding'] = [max(x,y) for x,y in zip(df_r["Non-verbal scaffolding:affective"],df["Verbal scaffolding:affective"])]
